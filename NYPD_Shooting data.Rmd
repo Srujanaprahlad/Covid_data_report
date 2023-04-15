@@ -1,0 +1,170 @@
+---
+title: "NYPD Shooting Incident Analysis"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-02-21"
+---
+
+All the shooting incidents that happened in NYC has been recorded, reviewed and posted on NYPD website. Every record includes every shooting incident, area and time of occurrence, sex,race and age groups of both victim and attacker. This data is available for public to explore on https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic.
+
+# **Step 1 : Import and Load Data**
+
+Before importing data, install some of the packages needed.
+
+Format for installing packages is install.packages("package name")
+Format to import libraries is library(package name)
+
+```{r, echo = TRUE, results='hide'}
+library(tidyverse)
+library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+```
+
+While importing data from the websites, copy and paste the link address and ensure to check for quotations, backlashes etc.
+
+```{r, echo = TRUE, results='hide'}
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+url_in
+```
+
+The file is read by `read_csv()` command. `read_csv()` is used to read comma delimited files while `read_csv2()` is used to read semicolon separated files.
+
+```{r, echo = TRUE}
+nypd_case <- read.csv(url_in[1])
+```
+
+# **Step 2: Tidying and Transforming the data**
+
+Now that the data is loaded, Check if any of the columns have any missing data.
+`is.na(x)` checks if it is an empty element.
+
+```{r, echo = TRUE}
+lapply(nypd_case,function(x) sum(is.na(x)))
+```
+
+Above results show that there is no missing data in the columns required. Cleaning up the data by changing variables into factors, characters and data types. In my observation, **INCIDENT_KEY** is treated as string and the rest as factors.
+
+```{r, echo = TRUE}
+nypd_case = nypd_case %>%
+  replace_na(list(PERP_AGE_GROUP = "Unknown", PERP_SEX = "Unknown", PERP_RACE = "Unknown"))
+
+nypd_case = subset(nypd_case, PERP_AGE_GROUP!="1020" & 
+                     PERP_AGE_GROUP!="224" & PERP_AGE_GROUP!="940")
+
+nypd_case$PERP_AGE_GROUP = recode(nypd_case$PERP_AGE_GROUP,UNKNOWN ="Unknown")
+nypd_case$PERP_RACE = recode(nypd_case$PERP_RACE, UNKNOWN = "Unknown")
+nypd_case$VIC_RACE = recode(nypd_case$VIC_RACE, UNKNOWN = "Unknown")
+nypd_case$PERP_SEX = recode(nypd_case$PERP_SEX, UNKNOWN = "Unknown")
+
+nypd_case$INCIDENT_KEY = as.character(nypd_case$INCIDENT_KEY)
+nypd_case$OCCUR_DATE = as.factor(nypd_case$OCCUR_DATE)
+nypd_case$OCCUR_TIME = as.factor(nypd_case$OCCUR_TIME)
+nypd_case$BORO = as.factor(nypd_case$BORO)
+nypd_case$STATISTICAL_MURDER_FLAG = as.factor(nypd_case$STATISTICAL_MURDER_FLAG)
+nypd_case$PERP_SEX = as.factor(nypd_case$PERP_SEX)
+nypd_case$VIC_SEX = as.factor(nypd_case$VIC_SEX)
+nypd_case$VIC_RACE = as.factor(nypd_case$VIC_RACE)
+nypd_case$PERP_AGE_GROUP = as.factor(nypd_case$PERP_AGE_GROUP)
+nypd_case$PERP_RACE = as.factor(nypd_case$PERP_RACE)
+nypd_case$VIC_AGE_GROUP = as.factor(nypd_case$VIC_AGE_GROUP)
+```
+
+Summary of the data after cleaning can be seen using summary(data) command.
+```{r, echo = TRUE}
+summary(nypd_case)
+```
+
+It has many rows and columns which are not needed. Select the required columns on which the analysis is based using `select()` command.
+
+```{r, echo = TRUE}
+nypd_case <- nypd_case %>%
+  select(INCIDENT_KEY,OCCUR_DATE,OCCUR_TIME,BORO,STATISTICAL_MURDER_FLAG,PERP_SEX,VIC_SEX,VIC_RACE)
+
+```
+
+
+
+
+# **Step 3: Visualizations and Analysis**
+
+One of the visualization is on which part of the New York City has more number of incidents.  
+
+```{r, echo = TRUE}
+plot_1 <- ggplot(nypd_case, aes(x = BORO)) + 
+  geom_bar() + labs(title = "Incidents in NYC", x = "Boroughs",y = "Number of incidents")+
+  theme_minimal()
+plot_1
+```
+
+From the bar graph it is clear that Brooklyn has the most number of incidents followed by Bronx, Queens and Manhattan. Staten Island has the least number of incidents. 
+
+Another visualization based on Victim sex is done to check which of the sexes are mostly targeted. 
+
+```{r, echo = TRUE}
+gender_ratio <- nypd_case %>%
+  group_by(VIC_SEX) %>%
+  count()
+gender_ratio
+```
+Males are more attacked than the females. There is a huge difference in the number of males and females attacked. Number of male victims is almost 10 times higher than the females. Attacks on unisex has been negligible compared to that of other two genders.
+
+Visualization based on the day of the incident occurence is also provided below. 
+
+```{r, echo = TRUE}
+nypd_case$OCCUR_DAY = mdy(nypd_case$OCCUR_DATE)
+nypd_case$OCCUR_DAY = wday(nypd_case$OCCUR_DAY, label = TRUE)
+nypd_case$OCCUR_HOUR = hour(hms(as.character(nypd_case$OCCUR_TIME)))
+
+occured_hour = nypd_case %>%
+  group_by(OCCUR_HOUR) %>%
+  count()
+
+occured_day <- nypd_case %>%
+  group_by(OCCUR_DAY) %>%
+  count()
+
+
+plot_2 <- ggplot(occured_day, aes(x= OCCUR_DAY,y = n)) +
+  geom_col() +
+  labs(title = "Incidents on weekdays",x = "Occured day", y = "No. of incidents") +
+  theme_minimal()
+plot_2
+```
+
+Using logistic regression models to estimate the probability that a murder case belongs to a particular sex and race. The output shows the coefficients, estimates, standard errors, z-statistic and p-values. 
+
+```{r, echo = TRUE}
+M <- glm(STATISTICAL_MURDER_FLAG ~ PERP_SEX + VIC_SEX + VIC_RACE, nypd_case, family = "binomial") 
+summary(M)
+```
+
+Dates on which maximum incidents occured and the associated values can be sliced using `slice_max()`command and date son which minimum incidents occured can be sliced using `slice_min()` command.
+
+```{r, echo = TRUE}
+nypd_case %>%
+  slice_max(OCCUR_DATE)
+```
+
+# **Step 4 : Bias Identification**
+
+In this topic, I had an assumption that most of the incidents happen to women than men. But the results of the data has proved the opposite. There are significantly more incidents happening to men than women. I also believe that most of the incidents happen around mid-nights. But it is best to validate the assumptions using the data driven way rather than believing in our experiences.
+A biased incident is completely unlawful if it is motivated based on a particular race, color, religion or gender. This can be supported by the article "Antisemitic hate crimes in NYC are on the rise, NYPD stats show" published by New York Daily Times.
+
+# **Additional Resources**
+
+* [Antisemitic hate crimes in NYC are on the rise, NYPD stats show](https://www.nydailynews.com/new-york/nyc-crime/ny-nypd-crime-statistics-shootings-hate-crimes-20221205-scmippnn75dg5lpvv6wkrknvuu-story.html)
+* [NYPD Shooting Incident Data (Historic)](https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic)
+
+
+
+
+
+
+
+
+
+
+
