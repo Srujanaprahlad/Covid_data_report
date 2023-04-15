@@ -1,0 +1,294 @@
+---
+title: "Report on COVID19 Data"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+date: "2023-03-27"
+---
+
+All the records of COVID19 cases in the world are gathered through various resources such as World Health Organization (WHO),  European Centre for Disease Prevention and Control (ECDC) and Public Health departments of various countries and states by Johns Hopkins University.  This is the data repository for the 2019 Novel Corona virus Visual Dashboard operated by the Johns Hopkins University Center for Systems Science and Engineering (JHU CSSE). This data is available to public to explore and work on https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data
+
+The main aim of this analysis is to find the best and worst places to live in terms of deaths per thousand people. Analysis is based mostly on dates versus number of cases.
+
+# **Step 1 : Import and Load Data**
+
+Before importing data, install some of the packages needed.
+
+Format for installing packages is install.packages("package name")
+Format to import libraries is library(package name)
+
+```{r, echo = TRUE, message=FALSE}
+library(tidyverse)
+library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+```
+
+While importing data from the websites, copy and paste the link address and ensure to check for quotations, backlashes etc.
+
+```{r, echo = TRUE}
+url_in <- "https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series"
+```
+
+The file is read by `read_csv()` command. `read_csv()` is used to read comma delimited files while `read_csv2()` is used to read semicolon separated files.
+
+```{r, echo = TRUE, warning= FALSE, message=FALSE}
+confirm_us <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv")
+
+confirm_global <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
+
+deaths_us <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv")
+
+deaths_global <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv")
+
+```
+
+# **Step 2: Tidying and Transforming the data**
+
+Now that the data is loaded, It has many rows and columns which are not needed. Select the required columns on which the analysis is based using `select()` command. 
+
+In the code below, function `pivot_longer()` helps in reducing number of columns and increasing number of rows. Arguments used in pivot_longer include `cols = ()` where columns are selected `names_to=` and `values_to` specifies the name of the column created using the data stored in the column names and cell values respectively. `mutate()` creates new columns and modifies existing columns. `confirm_us` indicates the cases confirmed in US while `deaths_us` indicates all the deaths occurred in US.
+
+```{r, echo = TRUE, message=FALSE}
+confirm_us <- confirm_us %>%
+    pivot_longer(cols = -(UID:Combined_Key), names_to = "date", values_to = "cases") %>%
+    select(Admin2:cases) %>%
+    mutate(date = mdy(date)) %>%
+    select(-c(Lat,Long_))
+
+deaths_us <- deaths_us %>%
+    pivot_longer(cols = -(UID:Population), names_to = "date", values_to = "deaths") %>%
+    select(Admin2:deaths) %>%
+    mutate(date = mdy(date)) %>%
+    select(-c(Lat,Long_))
+```
+
+`full_us` is confirmed cases in US and deaths in US combined together for a better analysis using `full_join()` function. Eliminating all the entries where the no cases are reported using `filter()` function.
+
+```{r, echo = TRUE, message=FALSE}
+full_us <- confirm_us %>%
+   full_join(deaths_us)
+full_us <- full_us %>% filter(cases > 0)
+full_us
+```
+
+To do a more detailed analysis, `full_us` can be analysed by grouping states, regions and dates. It is summarized on number of cases which resulted in deaths for a given population. `summarize()` function from tidyverse creates a new data frame which returns a single row summarizing all observations in the input.
+
+```{r, echo = TRUE, message=FALSE}
+by_state_us <- full_us %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mil = deaths *1000000/Population) %>%
+  select(Province_State, Country_Region, date, cases, deaths, Population) %>%
+  ungroup()
+by_state_us          
+
+```
+
+The first row of the table shows the sum of total cases i.e., 3 cases are recorded in the state Alabama on 2020-03-11 and the rest along with the deaths and dates.
+The same analysis can be made for total US. To do so, `by_state_us` can be grouped together by the country/region. For each date, the number of cases and the number of deaths and sum of the population in that region can be visualized. `deaths_per_mil` indicates the deaths occurred per million population.
+
+```{r, echo = TRUE, message=FALSE}
+us_totals <- by_state_us %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mil = deaths *1000000/Population) %>%
+  select(Country_Region, date, cases, deaths, deaths_per_mil, Population) %>%
+  ungroup()
+us_totals   
+```
+
+From the above results, the cases started as low as one case per day. One can check for the number of cases reported on preferred dates and locations. To ensure correct results, we can check the last rows of data using `tail()` function which prints last rows of the data. 
+
+```{r, echo = TRUE}
+tail(us_totals)  
+```
+
+We can see that the number of cases and deaths are significantly higher than the first day and deaths per million being around 3380 for US by March 2023.
+
+Similar transformations can be done to the global data as well. Working on global includes cases form different countries. `confirm_global` and `deaths_global` indicates the total confirmed cases and deaths recorded globally.
+
+```{r, echo = TRUE}
+confirm_global <- confirm_global %>%
+    pivot_longer(cols = -c('Province/State', 'Country/Region', 'Lat', 'Long'), names_to = "date", values_to = "cases") %>%
+    select(-c(Lat,Long))
+
+deaths_global <- deaths_global %>%
+    pivot_longer(cols = -c('Province/State', 'Country/Region', 'Lat', 'Long'), names_to = "date", values_to = "deaths") %>%
+    select(-c(Lat,Long))
+```
+
+`full_global` has all the records of cases and deaths recorded combined together by using `full_join()` function. `rename()` function is used to change the name of a column `Province/State` to `Province_state`. `full_global` has been filtered for the cases greater than zero using `filter()` function.
+
+```{r, echo = TRUE, message=FALSE}
+full_global <- confirm_global %>%
+   full_join(deaths_global) %>%
+   rename(Country_Region = 'Country/Region', Province_State = 'Province/State') %>%
+   mutate(date = mdy(date))
+full_global <- full_global %>% filter(cases > 0)
+full_global
+```
+# **Step 3: Visualizations and Analysis**
+
+I would like to do an analysis on the best and the worst states to live in the US in terms of deaths per thousand people. As we see, global data doesn't have population data. As we are interested in finding deaths per million around different countries, population data is important to make a fair analysis. So, for a comparison analysis we need to add the population data using a variable `Combined_Key` which combines Province_State and Country_Region together in the global data using a `unite()` function. Population data can be found from another data set from the Johns Hopkins website. csv files can be read using `read.csv()`. 
+
+```{r, echo = TRUE, message=FALSE}
+full_global <- full_global %>%
+   unite("Combined_Key", c(Province_State,Country_Region), sep =", ", na.rm = TRUE, remove = FALSE)
+full_global
+
+uid_1 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+uid_2 <- read_csv(uid_1) %>%
+  select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
+uid_2
+```
+
+We can see the population column included in the `uid_2` and a new column combined_key is also added to the full_global. Now joining the population data by province_state and country_region from uid_2 to the full_global using `left_join()` adds a new column population the full_global.
+
+```{r, echo = TRUE}
+full_global <- full_global %>%
+  left_join(uid_2, by = c("Province_State", "Country_Region")) %>%
+  select(-c(UID,FIPS)) %>%
+  select(Province_State, Country_Region, date, cases, deaths, Population, Combined_Key)
+full_global
+```
+
+Now that we have all the required data, we can do some visualizations of our interest. Taking the `us_totals` to visualize number of cases recorded against dates. Taking dates on X-axis and cases on Y-axis. `ggplot()` from the `tidyverse` package is used for the graphs. 
+`geom_line()` connects observations based on x value while `geom_point()` is used to create scatter plots and the graph is titled as `COVID19 in US`.
+
+```{r, echo = TRUE,message=FALSE, warning=FALSE}
+us_totals %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in US", y = NULL)
+```
+
+Graph shows a sudden surge of number of cases and deaths in the early 2020's. We can say that number of deaths are nearly proportional to number of cases. Number of cases and deaths have been slowly started stabilizing from the early 2022. A visualization based on the new cases and deaths reported can be made.
+
+```{r, echo = TRUE, message=FALSE}
+by_state_us <- by_state_us %>%
+  mutate(new_cases = cases - lag(cases), new_deaths = deaths - lag(deaths))
+by_state_us
+```
+ 
+We can have a look on the new cases reported versus new deaths reported in the state of Illinois. I tried to visualize the new cases and deaths reported per day in Illinois state.
+
+```{r, echo = TRUE, message=FALSE, warning=FALSE}
+state <- "Arizona"
+by_state_us %>%
+  filter(Province_State == state) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("COVID19 in ",state), y = NULL)
+
+state <- "American Samoa"
+by_state_us %>%
+  filter(Province_State == state) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("COVID19 in ",state), y = NULL)
+
+```
+Considering graphs above for the state of Arizona and American Samoa, there is a clear difference between two states. Resulted deaths in Arizona is significantly higher than American Samoa. Deaths in Arizona currently seems to be leveling off, but it is still reasonably high.
+
+Similar analysis can be done on the global data set,looking at a different country. Here I have chosen India to see number of cases and deaths reported per each day. 
+```{r, echo = TRUE, message=FALSE, warning=FALSE}
+by_countries <- full_global %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mil = deaths *1000000/Population) %>%
+  select(Country_Region, date, cases, deaths, Population) %>%
+  ungroup()
+
+country <- "India"
+by_countries %>%
+  filter(Country_Region == country) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("COVID19 in ",country), y = NULL)
+
+```
+The graph represents the maximum number of cases and deaths, which should be the cases and deaths as of that date that we got from the table. The deaths seems to be nearly proportional to the number of cases. The cases seems to be leveled off but still the number is reasonably high.
+
+To find the best and worst states in terms of deaths per thousand people, by_state_us is grouped by Province_State and within that, chose the maximum cases, deaths and population for the state, and computed the deaths per 1000 and cases per 1000. `filter()` function is used to filter out where cases and population is greater than zero.
+
+```{r, echo = TRUE}
+us_state_totals <- by_state_us %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths), cases = max(cases), Population = max(Population), cases_per_thou = 1000*cases/ Population, deaths_per_thou = 1000*deaths/Population) %>%
+  filter(cases >0, Population > 0)
+
+us_state_totals %>%
+  slice_min(deaths_per_thou) %>%
+  select(deaths_per_thou, cases_per_thou, everything())
+```
+
+`slice_min()` helps in finding the lowest values of a variable. Here lowest deaths_per_thou is recorded in the state American Samoa which is 0.6 against 149.5 cases per thousand people being the best state to live in terms of deaths per thousand. Similarly, maximum values of a variable can be found by using `slice_max()` function.
+
+```{r, echo = TRUE}
+us_state_totals %>%
+  slice_max(deaths_per_thou) %>%
+  select(deaths_per_thou, cases_per_thou, everything())
+```
+
+The highest deaths_per_thou is recorded in the state Arizona which is 4.5 against 335.7 cases per thousand people being the worst state to live in terms of deaths per thousand due to COVID19.
+
+The `lm()` function here creates a linear regression model. So a linear model means that the output variable is predicted by other variables in a linear fashion. For instance, here deaths_per_thou(output variable) is predicted based on the cases_per_thou(predictor variable). Summary of that model can be seen using `summary()` function. 
+
+```{r, echo = TRUE}
+mod <- lm(deaths_per_thou ~ cases_per_thou, data=us_state_totals)
+summary(mod)
+```
+
+In the summary of the model, Residual standard error(RSE) indicates the lack of fit of a linear regression model to the data. In our model the actual value can deviate from the predicted value by 0.086. Multiple R-Squared, Adjusted R-Squared indicates how well the model fits the actual data. F-statistic is a good indicator of whether there is any relationship between the output variable and predictor variable. Farther the value from 1, better the model is. In our case, 23.82 is not really farther from 1.
+
+`Predict()` function is used to predict the values based on the input. Here, input for the predict is the linear regression model we just computed. Prediction of number of deaths based on number of cases per thousand on the us_state_totals is added as a new column using `mutate()` function.
+
+```{r, echo = TRUE}
+us_tot_w_pred <- us_state_totals %>% mutate(pred = predict(mod))
+us_tot_w_pred
+```
+
+Using the data set with prediction, both the actual values and the predicted values can be fed to a ggplot with cases_per_thou in x-axis and deaths_per_thou in y_axis.
+
+```{r, echo = TRUE}
+us_tot_w_pred %>% 
+  ggplot() +
+  geom_point(aes(x = cases_per_thou, y = deaths_per_thou), color = "blue") +
+  geom_point(aes(x = cases_per_thou, y = pred), color = "red")
+```
+
+From. the plot, we can see that prediction is linear. 
+
+
+# **Step 4 : Bias Identification and Conclusion**
+
+One of my interest in this analysis is to check for the best and worst places to live in terms of deaths per thousand people. In my analysis, American Samoa is the best and Arizona is the worst states in US. If similar analysis is made to find the best and the worst countries, considering countries like India and China where population of a single state could be more than the total population of a small country, there is a situation that they may not be able to follow social distancing. There is a possibility that people in deep rural places in many under developed countries may not have access to the hospitals. As most of the hospitals were occupied over their capacity, there could be a possibility of cases being not reported. Researches and studies say that the actual number of covid cases could be much higher than the reported cases. This can be supported by an article "Coronavirus Infections Much Higher Than Reported Cases in Parts of U.S., Study Shows" published by The New York Times.
+
+# **Additional Resources**
+
+* [Coronavirus Infections Much Higher Than Reported Cases in Parts of U.S., Study Shows](https://www.nytimes.com/2020/07/21/health/coronavirus-infections-us.html)
+
+
